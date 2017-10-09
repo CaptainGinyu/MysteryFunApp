@@ -58,4 +58,8 @@ public class FriendlyMessage {
     public Object getTimestamp() {
         return timestamp;
     }
+
+    public void setTimestamp(Object timestamp) {
+        this.timestamp = timestamp;
+    }
 }

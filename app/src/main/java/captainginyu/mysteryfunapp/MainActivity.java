@@ -1,11 +1,13 @@
 package captainginyu.mysteryfunapp;
 
 import android.content.Context;
+import android.content.DialogInterface;
 import android.content.Intent;
 import android.graphics.Rect;
 import android.os.Bundle;
 import android.support.annotation.NonNull;
 import android.support.v4.content.ContextCompat;
+import android.support.v7.app.AlertDialog;
 import android.support.v7.widget.LinearLayoutManager;
 import android.support.v7.widget.RecyclerView;
 import android.support.v7.app.AppCompatActivity;
@@ -41,7 +43,10 @@ import com.google.firebase.database.FirebaseDatabase;
 import com.google.firebase.database.ServerValue;
 import com.google.firebase.database.ValueEventListener;
 
+import java.lang.reflect.Array;
+import java.util.ArrayList;
 import java.util.Date;
+import java.util.HashMap;
 import java.util.regex.Pattern;
 
 import de.hdodenhof.circleimageview.CircleImageView;
@@ -52,6 +57,9 @@ public class MainActivity extends AppCompatActivity
     private static final String ANONYMOUS = "anonymous";
     private static final String TAG = "MainActivity";
     public static final String MESSAGES_CHILD = "messages";
+    public static final String ADMIN_CHILD = "admin";
+    public static final String LOGGEDIN_CHILD = "loggedin";
+    public static final String BLOCKED_CHILD = "blocked";
 
     private GoogleApiClient googleApiClient;
     private ProgressBar progressBar;
@@ -68,6 +76,8 @@ public class MainActivity extends AppCompatActivity
 
     private RecyclerView messageRecyclerView;
     private LinearLayoutManager linearLayoutManager;
+
+    private AlertDialog alertDialog;
 
     public static class MessageViewHolder extends RecyclerView.ViewHolder {
         TextView messageTextView;
@@ -118,6 +128,9 @@ public class MainActivity extends AppCompatActivity
             if (firebaseUser.getPhotoUrl() != null) {
                 photoUrl = firebaseUser.getPhotoUrl().toString();
             }
+            firebaseDatabaseReference.child(LOGGEDIN_CHILD).push()
+                    .setValue(new LoggedinUsers(firebaseUser.getEmail(),
+                            firebaseUser.getDisplayName()));
         }
 
         progressBar = (ProgressBar) findViewById(R.id.progressBar);
@@ -208,7 +221,6 @@ public class MainActivity extends AppCompatActivity
                             .load(friendlyMessage.getPhotoUrl())
                             .into(viewHolder.messengerImageView);
                 }
-
             }
         };
 
@@ -254,7 +266,26 @@ public class MainActivity extends AppCompatActivity
     }
 
     @Override
-    public boolean onCreateOptionsMenu(Menu menu) {
+    public boolean onCreateOptionsMenu(final Menu menu) {
+        firebaseDatabaseReference.child(ADMIN_CHILD)
+            .addValueEventListener(new ValueEventListener() {
+                @Override
+                public void onDataChange(DataSnapshot dataSnapshot) {
+                    if (dataSnapshot.getValue() != null) {
+                        for (DataSnapshot admin : dataSnapshot.getChildren()) {
+                            String curr = admin.getValue().toString();
+                            if (curr.equals(firebaseUser.getEmail())) {
+                                menu.add(0, 1, 1, "Block");
+                            }
+                        }
+                    }
+                }
+
+                @Override
+                public void onCancelled(DatabaseError databaseError) {
+
+                }
+            });
         MenuInflater inflater = getMenuInflater();
         inflater.inflate(R.menu.main_menu, menu);
         return true;
@@ -264,12 +295,76 @@ public class MainActivity extends AppCompatActivity
     public boolean onOptionsItemSelected(MenuItem item) {
         switch (item.getItemId()) {
             case R.id.sign_out_menu:
-                firebaseAuth.signOut();
-                Auth.GoogleSignInApi.signOut(googleApiClient);
-                username = ANONYMOUS;
+                firebaseDatabaseReference.child(LOGGEDIN_CHILD)
+                        .addListenerForSingleValueEvent(new ValueEventListener() {
+                            @Override
+                            public void onDataChange(DataSnapshot dataSnapshot) {
+                                for (DataSnapshot loggedinUser : dataSnapshot.getChildren()) {
+                                    Object curr = loggedinUser.getValue();
+                                    if (((HashMap) curr).get("email").equals(firebaseUser.getEmail())) {
+                                        firebaseDatabaseReference.child(LOGGEDIN_CHILD)
+                                                .child(loggedinUser.getKey()).removeValue();
+                                    }
+                                }
+
+                                firebaseAuth.signOut();
+                                Auth.GoogleSignInApi.signOut(googleApiClient);
+                                username = ANONYMOUS;
+
+                            }
+
+                            @Override
+                            public void onCancelled(DatabaseError databaseError) {
+
+                            }
+                        });
+
                 startActivity(new Intent(this, SignInActivity.class));
                 finish();
                 return true;
+            case 1:
+                firebaseDatabaseReference.child(LOGGEDIN_CHILD)
+                        .addListenerForSingleValueEvent(new ValueEventListener() {
+                            @Override
+                            public void onDataChange(DataSnapshot dataSnapshot) {
+                                ArrayList<String> itemsList = new ArrayList<String>();
+                                final ArrayList<String> nameList = new ArrayList<String>();
+                                final ArrayList<String> emailList = new ArrayList<String>();
+                                for (DataSnapshot loggedinUser : dataSnapshot.getChildren()) {
+                                    HashMap value = (HashMap) loggedinUser.getValue();
+                                    itemsList.add(
+                                            ((String) value.get("name")) + " (" +
+                                                    ((String) value.get("email")) + ")");
+                                    emailList.add((String) value.get("email"));
+                                    nameList.add((String) value.get("name"));
+                                }
+                                final String[] itemsArray =
+                                        itemsList.toArray(
+                                                new String[(int) dataSnapshot.getChildrenCount()]);
+                                AlertDialog.Builder alertDialogBuilder =
+                                        new AlertDialog.Builder(MainActivity.this);
+                                alertDialogBuilder.setItems(itemsArray,
+                                        new DialogInterface.OnClickListener() {
+                                            @Override
+                                            public void onClick(DialogInterface dialogInterface,
+                                                                int i) {
+                                                firebaseDatabaseReference.child(BLOCKED_CHILD)
+                                                        .push().setValue(
+                                                                new LoggedinUsers(emailList.get(i),
+                                                                        nameList.get(i)));
+                                            }
+                                        });
+                                alertDialog = alertDialogBuilder.create();
+                                alertDialog.setTitle("Block a user from posting");
+                                alertDialog.show();
+                            }
+
+                            @Override
+                            public void onCancelled(DatabaseError databaseError) {
+
+                            }
+                        });
+
             default:
                 return super.onOptionsItemSelected(item);
         }
@@ -281,5 +376,28 @@ public class MainActivity extends AppCompatActivity
         // be available.
         Log.d(TAG, "onConnectionFailed:" + connectionResult);
         Toast.makeText(this, "Google Play Services error.", Toast.LENGTH_SHORT).show();
+    }
+
+    @Override
+    protected void onStop() {
+        super.onStop();
+        firebaseDatabaseReference.child(LOGGEDIN_CHILD)
+                .addListenerForSingleValueEvent(new ValueEventListener() {
+            @Override
+            public void onDataChange(DataSnapshot dataSnapshot) {
+                for (DataSnapshot loggedinUser : dataSnapshot.getChildren()) {
+                    Object curr = loggedinUser.getValue();
+                    if (((HashMap) curr).get("email").equals(firebaseUser.getEmail())) {
+                        firebaseDatabaseReference.child(LOGGEDIN_CHILD)
+                                .child(loggedinUser.getKey()).removeValue();
+                    }
+                }
+            }
+
+            @Override
+            public void onCancelled(DatabaseError databaseError) {
+
+            }
+        });
     }
 }

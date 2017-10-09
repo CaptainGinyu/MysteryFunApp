@@ -157,12 +157,35 @@ public class MainActivity extends AppCompatActivity
 
                 currentMessage = Pattern.compile(patternString, Pattern.CASE_INSENSITIVE)
                         .matcher(currentMessage).replaceAll("*BLEEP*");
-
-                FriendlyMessage friendlyMessage = new
+                final FriendlyMessage friendlyMessage = new
                         FriendlyMessage(currentMessage,
                         username, photoUrl, ServerValue.TIMESTAMP);
-                firebaseDatabaseReference.child(MESSAGES_CHILD)
-                        .push().setValue(friendlyMessage);
+
+                firebaseDatabaseReference.child(BLOCKED_CHILD).addListenerForSingleValueEvent(
+                        new ValueEventListener() {
+                    @Override
+                    public void onDataChange(DataSnapshot dataSnapshot) {
+                        for (DataSnapshot blockedUser : dataSnapshot.getChildren()) {
+                            if (((String) ((HashMap) blockedUser.getValue()).get("email"))
+                                    .equals(firebaseUser.getEmail())) {
+                                Toast.makeText(MainActivity.this,
+                                        "An admin blocked you from posting",
+                                        Toast.LENGTH_SHORT).show();
+                                return;
+                            }
+                        }
+
+                        firebaseDatabaseReference.child(MESSAGES_CHILD)
+                                .push().setValue(friendlyMessage);
+                    }
+
+                    @Override
+                    public void onCancelled(DatabaseError databaseError) {
+
+                    }
+                });
+
+
                 messageEditText.setText("");
             }
         });
@@ -323,47 +346,69 @@ public class MainActivity extends AppCompatActivity
                 finish();
                 return true;
             case 1:
-                firebaseDatabaseReference.child(LOGGEDIN_CHILD)
+                firebaseDatabaseReference.child(BLOCKED_CHILD)
                         .addListenerForSingleValueEvent(new ValueEventListener() {
-                            @Override
-                            public void onDataChange(DataSnapshot dataSnapshot) {
-                                ArrayList<String> itemsList = new ArrayList<String>();
-                                final ArrayList<String> nameList = new ArrayList<String>();
-                                final ArrayList<String> emailList = new ArrayList<String>();
-                                for (DataSnapshot loggedinUser : dataSnapshot.getChildren()) {
-                                    HashMap value = (HashMap) loggedinUser.getValue();
-                                    itemsList.add(
-                                            ((String) value.get("name")) + " (" +
-                                                    ((String) value.get("email")) + ")");
-                                    emailList.add((String) value.get("email"));
-                                    nameList.add((String) value.get("name"));
-                                }
-                                final String[] itemsArray =
-                                        itemsList.toArray(
-                                                new String[(int) dataSnapshot.getChildrenCount()]);
-                                AlertDialog.Builder alertDialogBuilder =
-                                        new AlertDialog.Builder(MainActivity.this);
-                                alertDialogBuilder.setItems(itemsArray,
-                                        new DialogInterface.OnClickListener() {
-                                            @Override
-                                            public void onClick(DialogInterface dialogInterface,
-                                                                int i) {
-                                                firebaseDatabaseReference.child(BLOCKED_CHILD)
-                                                        .push().setValue(
-                                                                new LoggedinUsers(emailList.get(i),
-                                                                        nameList.get(i)));
+                    @Override
+                    public void onDataChange(DataSnapshot dataSnapshot) {
+                        final ArrayList<String> alreadyBlocked = new ArrayList<String>();
+                        for (DataSnapshot blockedUser : dataSnapshot.getChildren()) {
+                            alreadyBlocked.add(
+                                    (String) ((HashMap) blockedUser.getValue()).get("email"));
+                        }
+                        firebaseDatabaseReference.child(LOGGEDIN_CHILD)
+                                .addListenerForSingleValueEvent(new ValueEventListener() {
+                                    @Override
+                                    public void onDataChange(DataSnapshot dataSnapshot) {
+                                        ArrayList<String> itemsList = new ArrayList<String>();
+                                        final ArrayList<String> nameList = new ArrayList<String>();
+                                        final ArrayList<String> emailList = new ArrayList<String>();
+                                        for (DataSnapshot loggedinUser : dataSnapshot.getChildren()) {
+                                            HashMap value = (HashMap) loggedinUser.getValue();
+                                            if (!alreadyBlocked.contains((String) value.get("email"))) {
+                                                itemsList.add(
+                                                        ((String) value.get("name")) + " (" +
+                                                                ((String) value.get("email")) + ")");
+                                                emailList.add((String) value.get("email"));
+                                                nameList.add((String) value.get("name"));
                                             }
-                                        });
-                                alertDialog = alertDialogBuilder.create();
-                                alertDialog.setTitle("Block a user from posting");
-                                alertDialog.show();
-                            }
+                                        }
 
-                            @Override
-                            public void onCancelled(DatabaseError databaseError) {
+                                        AlertDialog.Builder alertDialogBuilder =
+                                                new AlertDialog.Builder(MainActivity.this);
+                                        if (itemsList.size() > 0) {
+                                            final String[] itemsArray =
+                                                    itemsList.toArray(
+                                                            new String[itemsList.size()]);
+                                            alertDialogBuilder.setItems(itemsArray,
+                                                    new DialogInterface.OnClickListener() {
+                                                        @Override
+                                                        public void onClick(DialogInterface dialogInterface,
+                                                                            int i) {
+                                                            firebaseDatabaseReference.child(BLOCKED_CHILD)
+                                                                    .push().setValue(
+                                                                    new LoggedinUsers(emailList.get(i),
+                                                                            nameList.get(i)));
+                                                        }
+                                                    });
+                                        }
 
-                            }
-                        });
+                                        alertDialog = alertDialogBuilder.create();
+                                        alertDialog.setTitle("Block a user from posting");
+                                        alertDialog.show();
+                                    }
+
+                                    @Override
+                                    public void onCancelled(DatabaseError databaseError) {
+
+                                    }
+                                });
+                    }
+
+                    @Override
+                    public void onCancelled(DatabaseError databaseError) {
+
+                    }
+                });
 
             default:
                 return super.onOptionsItemSelected(item);

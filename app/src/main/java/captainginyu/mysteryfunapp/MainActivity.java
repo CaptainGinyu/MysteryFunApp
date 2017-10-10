@@ -97,6 +97,8 @@ public class MainActivity extends AppCompatActivity
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
+        progressBar = (ProgressBar) findViewById(R.id.progressBar);
+
         username = ANONYMOUS;
 
         firebaseAuth = FirebaseAuth.getInstance();
@@ -133,7 +135,7 @@ public class MainActivity extends AppCompatActivity
                             firebaseUser.getDisplayName()));
         }
 
-        progressBar = (ProgressBar) findViewById(R.id.progressBar);
+
         sendButton = (Button) findViewById(R.id.sendButton);
         messageEditText = (EditText) findViewById(R.id.messageEditText);
         this.getWindow().setSoftInputMode(
@@ -215,7 +217,6 @@ public class MainActivity extends AppCompatActivity
         linearLayoutManager = new LinearLayoutManager(this);
         linearLayoutManager.setStackFromEnd(true);
         messageRecyclerView.setLayoutManager(linearLayoutManager);
-
 
         firebaseAdapter = new FirebaseRecyclerAdapter<FriendlyMessage, MessageViewHolder>(
                 FriendlyMessage.class,
@@ -299,6 +300,7 @@ public class MainActivity extends AppCompatActivity
                             String curr = admin.getValue().toString();
                             if (curr.equals(firebaseUser.getEmail())) {
                                 menu.add(0, 1, 1, "Block");
+                                menu.add(0, 2, 2, "Unblock");
                             }
                         }
                     }
@@ -331,7 +333,11 @@ public class MainActivity extends AppCompatActivity
                                 }
 
                                 firebaseAuth.signOut();
-                                Auth.GoogleSignInApi.signOut(googleApiClient);
+                                try {
+                                    Auth.GoogleSignInApi.signOut(googleApiClient);
+                                } catch (Exception e) {
+
+                                }
                                 username = ANONYMOUS;
 
                             }
@@ -409,7 +415,57 @@ public class MainActivity extends AppCompatActivity
 
                     }
                 });
+                return true;
+            case 2:
+                firebaseDatabaseReference.child(BLOCKED_CHILD)
+                        .addListenerForSingleValueEvent(new ValueEventListener() {
+                    @Override
+                    public void onDataChange(DataSnapshot dataSnapshot) {
+                        ArrayList<String> itemsList = new ArrayList<String>();
+                        final ArrayList<String> nameList = new ArrayList<String>();
+                        final ArrayList<String> emailList = new ArrayList<String>();
+                        final ArrayList<DataSnapshot> datasnapshotList =
+                                new ArrayList<DataSnapshot>();
 
+                        for (DataSnapshot blockedUser : dataSnapshot.getChildren()) {
+                            HashMap value = (HashMap) blockedUser.getValue();
+                            itemsList.add(
+                                    ((String) value.get("name")) + " (" +
+                                            ((String) value.get("email")) + ")");
+                            emailList.add((String) value.get("email"));
+                            nameList.add((String) value.get("name"));
+                            datasnapshotList.add(blockedUser);
+                        }
+
+                        AlertDialog.Builder alertDialogBuilder =
+                                new AlertDialog.Builder(MainActivity.this);
+                        if (itemsList.size() > 0) {
+                            final String[] itemsArray =
+                                    itemsList.toArray(
+                                            new String[itemsList.size()]);
+                            alertDialogBuilder.setItems(itemsArray,
+                                    new DialogInterface.OnClickListener() {
+                                        @Override
+                                        public void onClick(DialogInterface dialogInterface,
+                                                            int i) {
+                                            firebaseDatabaseReference.child(BLOCKED_CHILD)
+                                                    .child(datasnapshotList.get(i).getKey())
+                                                    .removeValue();
+                                        }
+                                    });
+                        }
+
+                        alertDialog = alertDialogBuilder.create();
+                        alertDialog.setTitle("Unblock a user");
+                        alertDialog.show();
+                    }
+
+                    @Override
+                    public void onCancelled(DatabaseError databaseError) {
+
+                    }
+                });
+                return true;
             default:
                 return super.onOptionsItemSelected(item);
         }
